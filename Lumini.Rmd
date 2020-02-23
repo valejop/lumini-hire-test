@@ -1,0 +1,360 @@
+---
+title: "Lumini's Hire Test"
+author: "Thiago Pereira"
+date: "22 de fevereiro de 2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Este projeto é uma análise de uma fração dos dados dos candidatos do ENEM 2016 como teste para a vaga de Cientista de Dados Sênior da Lumini. 
+Este documento está dividido em:
+
+1.Objetivo
+
+2.Conclusões
+
+3.Configuração de ambiente de trabalho
+
+4.Análise exploratória
+
+    -Por região
+
+    -Por cor
+
+    -Por sexo
+
+    -Por classe social e poder aquisitivo
+
+    -Por motivação
+
+    -Por escola de origem
+    
+Além disso, um aplicativo em Shiny para análise interativa dos dados está localizada na pasta Dashboard.
+
+#Objetivo
+
+Segmentar os inscritos de forma clara e objetiva com o intuito de justificar investimentos em educação destinados a certas parcelas de alunos.
+
+#Conclusões
+Pelos dados vistos na análise exploratória, podemos concluir que maiores investimentos em educação deveriam ser destinados a:
+
+1-Escolas estaduais do Ceará e do Goiás, visto que são os estados com maior desigualdade de notas entre os 10% melhores e os 10% piores. No caso do Ceará, há uma proporção preocupante de alunos com baixa habilidade escrita.
+
+2-A escolas de ensino fundamental em povos indígenas e quilombolas, que obtiveram notas médias muito baixas. No caso dos indígenas, há precedentes de alunos estudaram posteriormente em escolas particulares e obtiveram bons resultados.
+
+3-A filhos de mãe solteira, pois se verificou que não saber a profissão do pai (pai ausente) impacta fortemente a nota do candidato.
+
+4-A alunos de classe média baixa que obtiverem notas altas no ENEM, visto que os alunos com as maiores notas não são necessariamente filhos de pais com nível superior, este incentivo poderia florescer futuros profissionais promissores.
+
+# Configuração de ambiente de trabalho
+
+Primeiramente, o diretório de trabalho foi selecionado para ficar igual ao diretório localizado no GitHub(https://github.com/lumini-it-solutions/lumini-hire-test/). Em seguida, foram carregadas as bibliotecas necessárias para realizar a análise.
+```{r warning=FALSE}
+setwd("C:/Users/valej_000/Documents/Lumini/")
+#Para ser reprodutível em qualquer computador, por favor escolha o diretório
+#com a linha comentada abaixo. Esta pasta equivale ao caminho da pasta do GitHub.
+#choose.dir()
+getwd()
+
+#####Carregar as bibliotecas utilizadas no trabalho
+#install.packages(c("tidyverse","polycor","corrplot","FactoMineR")
+library(corrplot)
+library(polycor)
+library(tidyverse)
+
+zip <- unz("sample_data/Microdados_Enem_2016.zip",filename = "Microdados_Enem_2016.csv")
+df <- read_csv(zip)
+```
+
+#Análise exploratória
+A primeira análise foi realizada lendo o data.frame com a função View. Como esta não foi suficiente para ler todas as colunas, utilizei a função fix para ler. (está comentada para evitar problemas)
+```{r warning=FALSE}
+#View(df)
+#summary(df)
+#fix(df)
+```
+
+##Por região geográfica
+A primeira segmentação foi por região e por estado. Não existe uma coluna região, mas ela está implícita no primeiro dígito das colunas CO_UF_* deste modo:
+*1=N*
+*2=NE*
+*3=SE*
+*4=S*
+*5=CO*
+Logo, foi feita uma função para criar as colunas regiões no data.frame.
+```{r warning=FALSE}
+get_regiao <- function(cod){
+  temp=vector(mode = "character",length = length(cod))
+  temp[substr(cod,1,1)=="1"]="N"
+  temp[substr(cod,1,1)=="2"]="NE"
+  temp[substr(cod,1,1)=="3"]="SE"
+  temp[substr(cod,1,1)=="4"]="S"
+  temp[substr(cod,1,1)=="5"]="CO"
+  return(as.factor(temp))
+}
+
+df <- df%>%mutate(REGIAO_RESIDENCIA=get_regiao(CO_UF_RESIDENCIA),
+                  REGIAO_PROVA=get_regiao(CO_UF_PROVA),
+                  REGIAO_NASCIMENTO=get_regiao(CO_UF_NASCIMENTO))
+#Verificando se está dentro dos conformes
+levels(as.factor(df$REGIAO_NASCIMENTO))
+levels(as.factor(df$REGIAO_PROVA))
+levels(as.factor(df$REGIAO_RESIDENCIA))
+```
+
+Existem 5 notas no ENEM: Ciências da Natureza(CN), Ciências Humanas(CH), Linguagens e Códigos(LC), Matemática(MT) e redação(REDACAO). Foi criado um no data.frame chamado notas com todas as notas consolidadas na mesma coluna. Como há alunos que realizaram apenas a prova em um dos dias de prova, foi criado o data.frame notas_PRESENTE, que é um filtro da tabela notas excluindo todos os alunos que se ausentaram da prova (reprovação imediata). 
+Este filtro foi feito pois medidas como média e mediana ficariam prejudicadas caso levássemos em consideração estes alunos.
+
+```{r warning=FALSE}
+notas <- df%>%
+  gather(key="PROVA",value="NOTA",NU_NOTA_MT,NU_NOTA_CN,
+         NU_NOTA_CH,NU_NOTA_LC,NU_NOTA_REDACAO)
+notas_PRESENTE <- notas%>%filter(TP_PRESENCA_CN & TP_PRESENCA_CH 
+                                 & TP_PRESENCA_LC & TP_PRESENCA_MT)
+notas_PRESENTE$PROVA <- str_remove(notas_PRESENTE$PROVA,"NU_NOTA_")
+
+
+
+```
+
+Muitas das análises realizadas neste estudo serão feitas com boxplots ou diagrama de caixa.  Fazendo o boxplot por região:
+```{r warning=FALSE}
+ggplot(data=notas_PRESENTE)+
+  geom_boxplot(mapping=aes(x = PROVA,y = NOTA,fill=REGIAO_PROVA))
+```
+O boxplot é uma caixa com limites superior e inferior representando o primeiro e terceiro quartil, respectivamente, e um traço mostrando a mediana das notas. Além disso, o gráfico apresenta duas retas que se expandem até o fim do intervalo de confiança. Quaisquer pontos que estejam fora do intervalo de confiança são "*outliers*".
+
+O resultado é consistente: as regiões Sul e Sudeste apresentaram melhores notas que o resto do país e as regiões Norte e Nordeste apresentaram as notas mais baixas. A tabela abaixo mostra métricas das notas de redação: a média por região, os percentis 10 e 90, adiferença de nota entre esses percentis (Gap90_10) e a **EscritaDeficiente** que indica a proporção de alunos com nota de redação abaixo de 250 e acima de 0. Zerar a prova pode acontecer por questões diversas da habilidade escrita, como, por exemplo, fugir do tema. Entretanto, uma nota baixa não zerada indica dificuldade dos alunos de escreverem um texto. 
+A tabela mostra que a região mais com as melhores notas de redação é a Sudeste, enquanto a com os piores é a Nordeste, tanto na média, quanto na nota dos percentis.   
+```{r warning=FALSE}
+df%>%group_by(REGIAO_PROVA)%>%
+  summarise(media=mean(NU_NOTA_REDACAO,na.rm =T) ,
+            DezPiores=quantile(NU_NOTA_REDACAO,probs = 0.1, na.rm = T),
+            DezMelhores=quantile(NU_NOTA_REDACAO,probs = 0.9, na.rm = T),
+            EscritaDeficiente=sum(NU_NOTA_REDACAO>0 & 
+                                       NU_NOTA_REDACAO<250,na.rm = T)/n())%>%
+  mutate(Gap90_10=DezMelhores-DezPiores)
+
+```
+
+Em seguida, foi feita a mesma análise para as unidades federativas.
+
+```{r warning=FALSE}
+ggplot(data=notas_PRESENTE)+
+  geom_boxplot(mapping=aes(x = fct_reorder(.f = SG_UF_PROVA,.x = NOTA,
+                                           .fun = function(x){median(x,na.rm = T)}),
+                           y = NOTA,fill=REGIAO_PROVA))+
+  xlab("Unidade Federativa")
+```
+
+```{r warning=FALSE}
+df%>%group_by(SG_UF_PROVA)%>%
+  summarise(media=mean(NU_NOTA_REDACAO,na.rm =T) ,
+            DezPiores=quantile(NU_NOTA_REDACAO,probs = 0.1, na.rm = T),
+            DezMelhores=quantile(NU_NOTA_REDACAO,probs = 0.9, na.rm = T),
+            EscritaDeficiente=round(sum(NU_NOTA_REDACAO>0 &
+                                       NU_NOTA_REDACAO<250,na.rm = T)/n(),3))%>%
+  mutate(Gap90_10=DezMelhores-DezPiores)%>%
+  arrange(desc(Gap90_10))
+```
+
+Um estado que chamou a atenção foi o Ceará. Ele possui nota média mais baixa e uma proporção preocupante elevada, entretanto, os melhores alunos alcançaram notas boas, o que pode indicar forte desigualdade social.
+Iremos nos debruçar um pouco mais sobre o Ceará, segmentando as escolas entre zonas rurais e urbanas e depois em públicas e privada.
+
+```{r warning=FALSE}
+ggplot(data=notas_PRESENTE%>%filter(SG_UF_RESIDENCIA=="CE"))+
+  geom_boxplot(mapping =aes(x=TP_LOCALIZACAO_ESC,y=NOTA, fill=as.factor(TP_LOCALIZACAO_ESC)))+
+  xlab("")+
+  scale_fill_discrete(name="Zona da escola (CE)",labels = c("Urbano","Rural"))+
+  theme(axis.text.x=element_blank())
+
+ggplot(data=notas_PRESENTE%>%filter(SG_UF_RESIDENCIA=="CE"))+
+  geom_boxplot(mapping =aes(x=TP_DEPENDENCIA_ADM_ESC,y=NOTA,
+                            group=TP_DEPENDENCIA_ADM_ESC, fill=as.factor(TP_DEPENDENCIA_ADM_ESC)))+
+  scale_fill_discrete(name="Administração da escola",labels = c("Federal","Estadual","Privada"))+
+  theme(axis.text.x=element_blank())+xlab("Administração da escola")
+```
+
+A diferença de notas entre escolas rurais e urbanas não é tão grande. Já a diferença entre escolas estaduais versus escolas federais e privadas é grande. Todas as notas baixas do estado vieram de escolas estaduais. Claro que este padrão também aparece em outros estados, mas não é tão grave.
+```{r warning=FALSE}
+ggplot(data=notas_PRESENTE%>%filter(SG_UF_RESIDENCIA%in%c("CE","GO","RJ")))+
+  geom_boxplot(mapping =aes(x=TP_DEPENDENCIA_ADM_ESC,y=NOTA,
+                            fill=as.factor(TP_DEPENDENCIA_ADM_ESC)))+
+  facet_grid(.~SG_UF_RESIDENCIA)+
+  scale_fill_discrete(name="Administração da escola",
+                      labels = c("Federal","Estadual","Municipal","Privada"))+
+  theme(axis.text.x=element_blank())+xlab("Administração da escola")
+```
+
+Deste modo, podemos afirmar que as escolas estaduais do Ceará precisam de uma atenção maior, sendo necessário um maior nível de investimento.
+
+##Por cor
+
+Os dados mostraram que os candidatos de cor branca tendem a obter uma nota melhor, seguidos dos de cor amarela. Enquanto isso, os candidatos indígenas obtiveram, em média, as piores notas em todas as provas. 
+Assim, vemos ser necessária uma maior atenção em escolas indígenas.
+```{r warning=FALSE}
+raca <- c("grey","beige",rgb(0.2,0.11,0.11),rgb(0.6,0.3,0.1),"yellow","red","blue")
+ggplot(data=notas_PRESENTE)+
+  geom_boxplot(mapping =aes(x=PROVA,y=NOTA,fill=as.factor(TP_COR_RACA)),
+               colour=rgb(0.4,0.4,0.6))+
+  scale_color_manual(values = raca,aesthetics = "fill",
+  labels=c("N_declarou","Branca","Preta","Parda","Amarela","Indígena"),
+  name="Cor")
+```
+
+##Nota por sexo
+A diferença entre sexos se mostrou muito pequena. Os homens foram levemente melhores nas questões de múltipla escolha enquanto as meninas foram levemente melhores em redação. Esta diferença não é, no entanto, suficiente para propor uma mudança nos investimentos e nas políticas de ensino.
+```{r warning=FALSE}
+ggplot(data=notas_PRESENTE)+
+  geom_density(mapping =aes(x=NOTA,fill=TP_SEXO))+
+  facet_grid(TP_SEXO~PROVA)+
+  ggtitle("Distribuição das notas entre os sexos")
+```
+
+#Classe social e poder aquisitivo
+
+As perguntas das questões 001 a 025 se referem à classe social e ao poder aquisitivo dos candidatos. Antes de analisarmos as respostas às perguntas, vamos filtrar as mais relevantes e eliminar perguntas redundantes.
+
+```{r warning=FALSE}
+Q_PA <- df%>%select(Q001,Q002,Q003,Q004,Q005,Q006,Q007,Q008,Q009,Q010,Q011,Q012,
+                    Q013,Q014,Q015,Q016,Q017,Q018,Q019,Q020,Q021,Q022,Q023,Q024,Q025)
+for(i in colnames(Q_PA)){Q_PA[[i]] <- as.factor(Q_PA[[i]])}
+
+cor <- matrix(rep(0,ncol(Q_PA)*ncol(Q_PA)),nrow = ncol(Q_PA),
+              dimnames = list(colnames(Q_PA)))
+for(i in 1:ncol(Q_PA)){
+  for(j in 1:i){
+    cor[i,j]=ifelse(i==j,1,polycor::polychor(x = Q_PA[[i]],y = Q_PA[[j]]))
+    cor[j,i]=cor[i,j]
+  }
+}
+colnames(cor) <- colnames(Q_PA)
+corrplot(cor,method = 'square', number.cex=0.7,order="hclust",addrect=6)
+
+```
+
+As 25 perguntas feitas tem respostas muito parecidas e podem ser reduzidas a 6 grupos. Continuaremos o estudo com as perguntas Q005, Q011, Q020, Q009, Q003 e Q025. Será testado agora se elas possuem impacto relevante nas notas de matemática e redação dos alunos.
+
+```{r warning=FALSE}
+df_qpa <- df%>%select(NU_NOTA_CN,NU_NOTA_CH,NU_NOTA_LC,NU_NOTA_MT,NU_NOTA_REDACAO,
+            Q005, Q011, Q020, Q009, Q003, Q025)%>%
+  filter(!is.na(NU_NOTA_CN)&!is.na(NU_NOTA_MT) &!is.na(NU_NOTA_REDACAO))
+lm_red <- lm(NU_NOTA_REDACAO~Q005+Q011+Q020+Q009+Q003+Q025,data = df_qpa)
+lm_mt <- lm(NU_NOTA_MT~Q005+Q011+Q020+Q009+Q003+Q025,data = df_qpa)
+s_red <- summary(lm_red)
+s_mt <- summary(lm_mt)
+tabela <- cbind(round(s_red$coefficients[,4],3),round(s_mt$coefficients[,4],3),
+      (s_red$coefficients[,4]<0.1 & s_mt$coefficients[,4]<0.1))
+colnames(tabela) <- c("P-valor Redação","P-valor MT","Relevante?")
+tabela
+```
+
+Destas 6 perguntas escolhidas, as com impacto mais relevante sobre as notas nde redação e matemática são:
+*Q003*: A partir da apresentação de algumas ocupações divididas em grupos ordenados, indique o grupo que contempla a ocupação mais próxima da ocupação do seu pai ou do homem responsável por você.
+*Q005*: Incluindo você, quantas pessoas moram atualmente em sua residência?
+*Q025*: Na sua residência tem acesso à Internet?
+
+###Q003: Grau de instrução/trabalho do pai
+
+As categorias contemplam desde trabalhadores braçais (categoria A), cargos auxiliares (B), cargos técnicos(C e D), cargos que exigem nível superior (E) e desconhecido (F). É bem visível a gradação das notas de acordo com o grau de instrução paterno. A categoria F ficou com uma média de nota muito baixa, o que é um reflexo do abandono parental na educação dos filhos. Outro dado interessante foi que as maiores notas não foram alcançadas pelos filhos da categoria E, mas da categoria D.
+
+```{r warning=FALSE}
+ggplot(data=notas_PRESENTE)+
+  geom_boxplot(mapping = aes(x = fct_reorder(.f = Q003,.x = NOTA,
+                                             .fun = function(x){median(x,na.rm = T)}),
+                             y = NOTA,fill=Q003))+
+  xlab("Profissão do Pai")
+```
+
+Destes dados, abrem-se duas possibilidades de investimento em educação:
+Primeiro, uma política que desenvolva filhos de mãe solteira.
+Segundo, uma política que beneficie jovens de classe média baixa com grande potencial ao longo da faculdade, desenvolvendo-os academicamente, visando que se tornem professores universitários.
+
+###Q005: Número de pessoas na residência
+
+O número de pessoas na casa não interfere tanto com a nota do aluno em média,entretanto, um número elevado de pessoas em casa o poderia atrapalhar a obter uma nota superior a 800. 
+```{r warning=FALSE}
+ggplot(data=notas_PRESENTE)+
+  geom_boxplot(mapping = aes(x = as.factor(Q005),y = NOTA,fill=as.factor(Q005)))+
+  geom_hline(mapping = aes(yintercept=800),color="red")+
+  xlab("Número de pessoas morando com o candidato")+
+  theme(legend.position = 'none')
+```
+
+###Q025: Internet
+
+A presença de internet aumenta a nota média consideravelmente.Segundo as regressões realizadas previamente, é uma diferença de cerca de 40 e 30 pontos para redação e matemática, respectivamente.Esta pergunta pode ser entendida como um demonstrativo de poder aquisitivo, assim como as outras perguntas estão no agrupamento da pergunta Q025.
+
+```{r warning=FALSE}
+ggplot(data=notas_PRESENTE)+
+  geom_histogram(mapping = aes(x = NOTA,fill=as.factor(Q025)),bins=40)+
+  facet_grid(as.factor(Q025)~.)+
+  geom_vline(mapping = aes(xintercept=550),color="darkgrey")+
+  scale_fill_discrete(name="Internet?",labels=c("Não","Sim"))+
+  theme(strip.text.y =element_blank())
+
+```
+
+##Motivação
+
+As perguntas de Q029 a Q41 são perguntas buscando compreender a motivação do candidato a prestar o ENEM. São perguntas que pedem uma nota de zero a cinco, sendo cinco a motivação exata. Como as motivações está arranjada em notas de 0 a 5, é possível quantificar sua importância através de uma regressão linear multivariada. 
+
+```{r warning=FALSE}
+Q_mot <- df%>%select(NU_NOTA_MT,NU_NOTA_REDACAO,Q029,Q030,Q031,Q032,Q033,Q034,Q035,Q036,
+                     Q037,Q038,Q039,Q040,Q041)%>%
+  filter(!is.na(NU_NOTA_MT) &!is.na(NU_NOTA_REDACAO))
+lm3 <- lm(NU_NOTA_MT~Q029+Q030+Q031+Q032+Q033+Q034+Q035+Q036+Q037+Q038+Q039+Q040+Q041,
+          Q_mot)
+summary(lm3)
+```
+
+O modelo linear em si não explica suficientemente as notas, pois seu R² é muito baixo. Contudo, existem coeficientes lineares de motivações com alguma interferência estaticamente relevantes no desempenho do aluno.São perguntas Q034,Q037,Q038,Q040 e Q041.
+Uma pergunta com grande influência negativa na pontuação foi a Q037:Conseguir uma bolsa de estudos(ProUni, outras). Esta motivação pode diminuir a nota média do aluno em até 45 pontos, outro indicador do efeito da desigualdade social.
+Outra negativamente relevante é a pergunta Q034: Testar meus conhecimentos, que não é interessante para o objetivo do trabalho, pois indica que o candidato não está realizando a prova com menos garra. Nenhuma motivação se mostrou positivamente relevante.
+
+##Escola de origem
+
+Por fim, foram segmentadas as notas médias por escola de origem de modo a olhar o ensino fundamental e o ensino médio dos candidatos.
+```{r warning=FALSE}
+
+df_or <- notas_PRESENTE%>%group_by(Q042,Q047)%>%
+  summarise(media=mean(NOTA,na.rm=T),n=n())
+
+df_or$Q042 <- ifelse(df_or$Q042=="A","Público",df_or$Q042)
+df_or$Q042 <- ifelse(df_or$Q042=="B","Público principal",df_or$Q042)
+df_or$Q042 <- ifelse(df_or$Q042=="C","Particular",df_or$Q042)
+df_or$Q042 <- ifelse(df_or$Q042=="D","Particular principal",df_or$Q042)
+df_or$Q042 <- ifelse(df_or$Q042=="E","Indígena",df_or$Q042)
+df_or$Q042 <- ifelse(df_or$Q042=="F","Indígena principal",df_or$Q042)
+df_or$Q042 <- ifelse(df_or$Q042=="G","Quilombola",df_or$Q042)
+df_or$Q042 <- ifelse(df_or$Q042=="H","Quilombola principal",df_or$Q042)
+
+df_or$Q042 <- as.factor(df_or$Q042)
+
+df_or$Q047 <- ifelse(df_or$Q047=="A","Público",df_or$Q047)
+df_or$Q047 <- ifelse(df_or$Q047=="B","Público+Privado(s/bolsa)",df_or$Q047)
+df_or$Q047 <- ifelse(df_or$Q047=="C","Público+Privado(c/bolsa)",df_or$Q047)
+df_or$Q047 <- ifelse(df_or$Q047=="D","Privado s/bolsa",df_or$Q047)
+df_or$Q047 <- ifelse(df_or$Q047=="E","Privado c/ bolsa",df_or$Q047)
+
+df_or$Q047 <- as.factor(df_or$Q047)
+
+ggplot(df_or)+
+  geom_point(mapping = aes(x = Q042,y=Q047,cex=media,color=media))+
+  scale_color_gradient(low = "white",high = "gold")+
+  geom_text(mapping = aes(x = Q042,y=Q047,
+                          label=round(media),hjust="left",vjust="top"),color=1)+
+  geom_text(mapping = aes(x = Q042,y=Q047,
+                          label=n,hjust="left",vjust="bottom"),color="darkslategray")+
+  guides(cex=F)+
+  xlab("Ensino Fundamental")+ylab("Ensino Médio")+
+  ggtitle("Nota média por escola (Legenda:nº de alunos e nota)")+
+  theme(axis.text.x = element_text(angle = 30, hjust = 1),
+          axis.text.y = element_text(angle = 30, hjust = 1))
+
+```
+
+Novamente, aparece as baixas notas dos povos indígenas. Uma política pública que para melhorar o nível dos alunos indígenas e quilombolas em escolas privadas poderia causar um impacto positivo sobre essas comunidades.
